@@ -1,38 +1,37 @@
-# cc switch BLE display bridge
+# cc switch BLE 显示桥接项目
 
-This project uses Bluetooth Low Energy to push cc switch status from this Mac to an ESP32-S3 display.
+这个项目通过 Bluetooth Low Energy，把本机 Mac 上的 cc switch 状态推送到 ESP32-S3 显示屏。
 
-Flow:
+工作流程：
 
 ```text
 Mac LaunchAgent
-  -> reads ~/.cc-switch/cc-switch.db every 2 minutes
-  -> fetches the provider usage/balance data locally on the Mac
-  -> caches the last good balance in ~/.cc-switch/ble-display-status-cache.json
-  -> writes a small JSON payload to the ESP32-S3 BLE characteristic
-  -> ESP32 updates the screen
+  -> 每 2 分钟读取 ~/.cc-switch/cc-switch.db
+  -> 在 Mac 本地获取 provider 的用量/余额数据
+  -> 将最近一次可用余额缓存到 ~/.cc-switch/ble-display-status-cache.json
+  -> 向 ESP32-S3 的 BLE 特征写入一段小型 JSON 载荷
+  -> ESP32 更新屏幕内容
 
-ESP32 refresh button
-  -> sends a BLE notify event to the Mac bridge
-  -> Mac fetches the current provider usage immediately
-  -> Mac writes the refreshed JSON payload back to the ESP32
+ESP32 刷新按钮
+  -> 向 Mac 桥接程序发送 BLE notify 事件
+  -> Mac 立即获取当前 provider 用量
+  -> Mac 将刷新后的 JSON 载荷写回 ESP32
 ```
 
-No server is required.
+整个链路不需要服务器。
 
-## BLE shape
+## BLE 结构
 
-- ESP32-S3 role: BLE peripheral / GATT server
-- Mac role: BLE central / client
-- Device name: `CCSwitch`
-- Service UUID: `7b3d0001-7c2f-4f81-9f2f-2d5a91c3cc01`
-- Status characteristic UUID: `7b3d0002-7c2f-4f81-9f2f-2d5a91c3cc01`
-- Refresh request characteristic UUID: `7b3d0003-7c2f-4f81-9f2f-2d5a91c3cc01`
+- ESP32-S3 角色：BLE peripheral / GATT server
+- Mac 角色：BLE central / client
+- 设备名称：`CCSwitch`
+- 服务 UUID：`7b3d0001-7c2f-4f81-9f2f-2d5a91c3cc01`
+- 状态特征 UUID：`7b3d0002-7c2f-4f81-9f2f-2d5a91c3cc01`
+- 刷新请求特征 UUID：`7b3d0003-7c2f-4f81-9f2f-2d5a91c3cc01`
 
-The status characteristic is written by the Mac. The refresh request
-characteristic is notified by the ESP32 when the LVGL button is clicked.
+状态特征由 Mac 写入。点击 ESP32 上的 LVGL 按钮时，ESP32 会通过刷新请求特征发送 notify。
 
-Status payload example:
+状态载荷示例：
 
 ```json
 {
@@ -49,69 +48,56 @@ Status payload example:
 }
 ```
 
-If the provider usage request times out, the Mac script keeps the current
-provider and reuses the last cached `balanceText`, `currency`, and `resetAt`
-when available, so the display does not blank the quota line during a transient
-network/API failure.
+如果 provider 用量请求超时，Mac 脚本会保留当前 provider，并在可用时复用上次缓存的
+`balanceText`、`currency` 和 `resetAt`。这样在临时网络/API 故障时，屏幕上的额度行不会变空。
 
-The `ageSeconds` field is the age of the usage data at send time. A fresh usage
-response sends `0`; cached fallback responses send the elapsed time since the
-cached balance was captured. The ESP32 keeps incrementing that age locally and
-only redraws the small age text region.
+`ageSeconds` 字段表示发送时用量数据的年龄。新鲜的用量响应会发送 `0`；缓存兜底响应会发送从缓存余额生成到当前的经过秒数。ESP32 会在本地继续递增这个时间，并只重绘小号时间文本区域。
 
-The bottom timestamp on the ESP32 screen is the Mac refresh time from
-`refreshedAtText`; it does not display the provider quota reset time.
+ESP32 屏幕底部的时间来自 `refreshedAtText`，表示 Mac 刷新时间；它不显示 provider 额度重置时间。
 
-## ESP32 firmware
+## ESP32 固件
 
-The Arduino sketch is in `esp32/cc_switch_display_ble/cc_switch_display_ble.ino`.
-It uses `GFX Library for Arduino` version `1.5.9`, `U8g2` version `2.36.19`,
-and ESP32 Arduino core `2.0.16`. `U8g2` is used only to let Arduino_GFX draw
-the small Chinese labels in the status card.
+Arduino 草图位于 `esp32/cc_switch_display_ble/cc_switch_display_ble.ino`。
+它使用 `GFX Library for Arduino` `1.5.9`、`U8g2` `2.36.19`，以及 ESP32 Arduino core `2.0.16`。`U8g2` 只用于让 Arduino_GFX 绘制状态卡片里的小号中文标签。
 
-Install/check libraries:
+安装/检查库：
 
 ```bash
 "/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" lib install U8g2
 "/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" lib list | rg '^U8g2|GFX Library'
 ```
 
-Compile check:
+编译检查：
 
 ```bash
 "/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli" compile --fqbn esp32:esp32:esp32s3 "/Users/wokao2333/Desktop/p图/cc-switch-ble-display/esp32/cc_switch_display_ble"
 ```
 
-Push a fixed visual-check sample that mirrors the reference screenshot:
+推送一个固定的视觉检查示例，内容与参考截图一致：
 
 ```bash
 BLE_PUSH_TIMEOUT=25 mac/push_demo_status.sh
 ```
 
-Run the long-lived Mac bridge that listens for the ESP32 refresh button and
-also keeps the display periodically refreshed:
+运行常驻 Mac 桥接程序：监听 ESP32 刷新按钮，并定期刷新显示内容。
 
 ```bash
 mac/watch_refresh_requests.sh
 ```
 
-Or run the full visual-check helper, which generates the expected SVG preview
-and pushes the same demo payload to the ESP32:
+也可以运行完整视觉检查脚本：它会生成预期 SVG 预览，并向 ESP32 推送同一份演示载荷。
 
 ```bash
 scripts/run_visual_check.sh
 ```
 
-Generate a desktop SVG preview from the current Arduino_GFX layout constants:
+根据当前 Arduino_GFX 布局常量生成桌面 SVG 预览：
 
 ```bash
 scripts/render_ui_preview.py
 python3 scripts/render_ui_preview.py --payload "$(python3 mac/cc_switch_provider_status.py)" --out scripts/ui_preview_real.svg
 ```
 
-The default preview is written to `scripts/ui_preview.svg` and should match the
-demo BLE payload: `9 分钟前`, `25.31`, `USD`, and `使用中`. Use it as a coordinate
-reference when comparing a photo of the physical screen.
+默认预览会写入 `scripts/ui_preview.svg`，并且应该匹配演示 BLE 载荷：`9 分钟前`、`25.31`、`USD` 和 `使用中`。对比实体屏幕照片时，可以把它作为坐标参考。
 
-Before uploading, close Arduino Serial Monitor or stop any `arduino-cli monitor`
-process using `/dev/cu.usbserial-110`, otherwise the upload port will be busy.
+上传前，请关闭 Arduino Serial Monitor，或停止任何正在使用 `/dev/cu.usbserial-110` 的 `arduino-cli monitor` 进程，否则上传端口会被占用。
